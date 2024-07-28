@@ -16,15 +16,26 @@
 
 import { App } from '../app';
 import { FirebaseApp } from '../app/firebase-app';
-import { HttpRequestConfig, HttpClient, HttpError, AuthorizedHttpClient, HttpResponse } from '../utils/api-request';
+import { 
+  HttpRequestConfig, HttpClient, RequestResponseError, AuthorizedHttpClient,RequestResponse
+} from '../utils/api-request';
 import { PrefixedFirebaseError } from '../utils/error';
 import * as utils from '../utils/index';
 import * as validator from '../utils/validator';
 import { deepCopy } from '../utils/deep-copy';
-import { ListVersionsOptions, ListVersionsResult, RemoteConfigTemplate } from './remote-config-api';
+import {
+  ListVersionsOptions,
+  ListVersionsResult,
+  RemoteConfigTemplate,
+  ServerTemplateData
+} from './remote-config-api';
 
 // Remote Config backend constants
-const FIREBASE_REMOTE_CONFIG_V1_API = 'https://firebaseremoteconfig.googleapis.com/v1';
+/**
+  * Allows the `FIREBASE_REMOTE_CONFIG_URL_BASE` environment
+  * variable to override the default API endpoint URL.
+  */
+const FIREBASE_REMOTE_CONFIG_URL_BASE = process.env.FIREBASE_REMOTE_CONFIG_URL_BASE || 'https://firebaseremoteconfig.googleapis.com';
 const FIREBASE_REMOTE_CONFIG_HEADERS = {
   'X-Firebase-Client': `fire-admin-node/${utils.getSdkVersion()}`,
   // There is a known issue in which the ETag is not properly returned in cases where the request
@@ -166,7 +177,29 @@ export class RemoteConfigApiClient {
       });
   }
 
-  private sendPutRequest(template: RemoteConfigTemplate, etag: string, validateOnly?: boolean): Promise<HttpResponse> {
+  public getServerTemplate(): Promise<ServerTemplateData> {
+    return this.getUrl()
+      .then((url) => {
+        const request: HttpRequestConfig = {
+          method: 'GET',
+          url: `${url}/namespaces/firebase-server/serverRemoteConfig`,
+          headers: FIREBASE_REMOTE_CONFIG_HEADERS
+        };
+        return this.httpClient.send(request);
+      })
+      .then((resp) => {
+        return this.toRemoteConfigServerTemplate(resp);
+      })
+      .catch((err) => {
+        throw this.toFirebaseError(err);
+      });
+  }
+
+  private sendPutRequest(
+    template: RemoteConfigTemplate,
+    etag: string,
+    validateOnly?: boolean
+  ): Promise<RequestResponse> {
     let path = 'remoteConfig';
     if (validateOnly) {
       path += '?validate_only=true';
@@ -191,7 +224,7 @@ export class RemoteConfigApiClient {
   private getUrl(): Promise<string> {
     return this.getProjectIdPrefix()
       .then((projectIdPrefix) => {
-        return `${FIREBASE_REMOTE_CONFIG_V1_API}/${projectIdPrefix}`;
+        return `${FIREBASE_REMOTE_CONFIG_URL_BASE}/v1/${projectIdPrefix}`;
       });
   }
 
@@ -215,7 +248,7 @@ export class RemoteConfigApiClient {
       });
   }
 
-  private toFirebaseError(err: HttpError): PrefixedFirebaseError {
+  private toFirebaseError(err: RequestResponseError): PrefixedFirebaseError {
     if (err instanceof PrefixedFirebaseError) {
       return err;
     }
@@ -243,13 +276,31 @@ export class RemoteConfigApiClient {
    * @param {HttpResponse} resp API response object.
    * @param {string} customEtag A custom etag to replace the etag fom the API response (Optional).
    */
-  private toRemoteConfigTemplate(resp: HttpResponse, customEtag?: string): RemoteConfigTemplate {
+  private toRemoteConfigTemplate(resp: RequestResponse, customEtag?: string): RemoteConfigTemplate {
     const etag = (typeof customEtag === 'undefined') ? resp.headers['etag'] : customEtag;
     this.validateEtag(etag);
     return {
       conditions: resp.data.conditions,
       parameters: resp.data.parameters,
       parameterGroups: resp.data.parameterGroups,
+      etag,
+      version: resp.data.version,
+    };
+  }
+
+  /**
+   * Creates a RemoteConfigServerTemplate from the API response.
+   * If provided, customEtag is used instead of the etag returned in the API response.
+   *
+   * @param {HttpResponse} resp API response object.
+   * @param {string} customEtag A custom etag to replace the etag fom the API response (Optional).
+   */
+  private toRemoteConfigServerTemplate(resp: RequestResponse, customEtag?: string): ServerTemplateData {
+    const etag = (typeof customEtag === 'undefined') ? resp.headers['etag'] : customEtag;
+    this.validateEtag(etag);
+    return {
+      conditions: resp.data.conditions,
+      parameters: resp.data.parameters,
       etag,
       version: resp.data.version,
     };
