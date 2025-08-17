@@ -232,7 +232,7 @@
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
-    "bcrypt": "^5.0.0",
+    "bcrypt": "^6.0.0",
     "chai": "^4.2.0",
     "chai-as-promised": "^7.0.0",
     "chai-exclude": "^2.1.0",
